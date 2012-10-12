@@ -151,27 +151,19 @@ void loggor_throw_exception_hook(zval *exception TSRMLS_DC)
 /* Insert an event in the backend */
 static void insert_event(int type, char * error_filename, uint error_lineno, char * msg TSRMLS_DC)
 {
-  json_t * obj;
-  json_t * j_type;
-  json_t * j_error_filename;
-  json_t * j_error_lineno;
-  json_t * j_msg;
+  // Create and pack object
   char * json_msg;
-  
-  j_type = json_integer(type);
-  j_error_filename = json_string(error_filename);
-  j_error_lineno = json_integer(error_lineno);
-  j_msg = json_string(msg);
-  
-  obj = json_object();
-  json_object_set(obj, "type", j_type);
-  json_object_set(obj, "file", j_error_filename);
-  json_object_set(obj, "line", j_error_lineno);
-  json_object_set(obj, "message", j_msg);
-  
-  
+  json_t * obj = json_pack("{s:i, s:s, s:i, s:s}",
+        "type", type,
+        "file", error_filename,
+        "line", error_lineno,
+        "message", msg);
   json_msg = json_dumps(obj, JSON_ENCODE_ANY);
-  php_printf("test: %s", json_msg);
   
+  // Handle json message
+  php_log_err(json_msg TSRMLS_CC);
+  
+  // Free
   free(json_msg);
+  free(obj);
 }
