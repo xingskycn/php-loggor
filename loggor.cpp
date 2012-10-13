@@ -47,6 +47,10 @@ void loggor_throw_exception_hook(zval *exception TSRMLS_DC);
 
 static void insert_event(int, char *, uint, char * TSRMLS_DC);
 
+const char * loggor_error_type_simple(int type);
+const char * loggor_error_type(int type);
+const char * loggor_error_type_const(int type);
+
 /* }}} ---------------------------------------------------------------------- */
 /* {{{ Module Entry --------------------------------------------------------- */
 
@@ -204,8 +208,8 @@ static void insert_event(int type, char * error_filename, uint error_lineno, cha
   gettimeofday(&ts, NULL);
   
   // Create and pack object
-  obj = json_pack("{s:i, s:s, s:i, s:s, s:f}",
-        "type", type,
+  obj = json_pack("{s:s, s:s, s:i, s:s, s:f}",
+        "type", loggor_error_type(type),
         "file", error_filename,
         "line", error_lineno,
         "message", msg,
@@ -263,4 +267,149 @@ static void insert_event(int type, char * error_filename, uint error_lineno, cha
   // Free
   free(json_msg);
   free(obj);
+}
+
+const char * loggor_error_type_simple(int type)
+{
+	switch (type) {
+		case E_ERROR:
+		case E_CORE_ERROR:
+		case E_COMPILE_ERROR:
+		case E_USER_ERROR:
+			return "fatal-error";
+			break;
+#if PHP_VERSION_ID >= 50200
+		case E_RECOVERABLE_ERROR:
+			return "catchable-fatal-error";
+			break;
+#endif
+		case E_WARNING:
+		case E_CORE_WARNING:
+		case E_COMPILE_WARNING:
+		case E_USER_WARNING:
+			return "warning";
+			break;
+		case E_PARSE:
+			return "parse-error";
+			break;
+		case E_NOTICE:
+		case E_USER_NOTICE:
+			return "notice";
+			break;
+		case E_STRICT:
+			return "strict-standards";
+			break;
+#if PHP_VERSION_ID >= 50300
+		case E_DEPRECATED:
+		case E_USER_DEPRECATED:
+			return "deprecated";
+			break;
+#endif
+		case 0:
+			return "xdebug";
+			break;
+		default:
+			return "unknown-error";
+			break;
+	}
+}
+
+const char * loggor_error_type(int type)
+{
+	switch (type) {
+		case E_ERROR:
+		case E_CORE_ERROR:
+		case E_COMPILE_ERROR:
+		case E_USER_ERROR:
+			return "Fatal error";
+			break;
+#if PHP_VERSION_ID >= 50200
+		case E_RECOVERABLE_ERROR:
+			return "Catchable fatal error";
+			break;
+#endif
+		case E_WARNING:
+		case E_CORE_WARNING:
+		case E_COMPILE_WARNING:
+		case E_USER_WARNING:
+			return "Warning";
+			break;
+		case E_PARSE:
+			return "Parse error";
+			break;
+		case E_NOTICE:
+		case E_USER_NOTICE:
+			return "Notice";
+			break;
+		case E_STRICT:
+			return "Strict standards";
+			break;
+#if PHP_VERSION_ID >= 50300
+		case E_DEPRECATED:
+		case E_USER_DEPRECATED:
+			return "Deprecated";
+			break;
+#endif
+		default:
+			return "Unknown error";
+			break;
+	}
+}
+
+const char * loggor_error_type_const(int type)
+{
+	switch (type) {
+		case E_ERROR:
+			return "E_ERROR";
+			break;
+		case E_CORE_ERROR:
+			return "E_CORE_ERROR";
+			break;
+		case E_COMPILE_ERROR:
+			return "E_COMPILE_ERROR";
+			break;
+		case E_USER_ERROR:
+			return "E_USER_ERROR";
+			break;
+#if PHP_VERSION_ID >= 50200
+		case E_RECOVERABLE_ERROR:
+			return "E_RECOVERABLE_ERROR";
+			break;
+#endif
+		case E_WARNING:
+			return "E_WARNING";
+			break;
+		case E_CORE_WARNING:
+			return "E_CORE_WARNING";
+			break;
+		case E_COMPILE_WARNING:
+			return "E_COMPILE_WARNING";
+			break;
+		case E_USER_WARNING:
+			return "E_USER_WARNING";
+			break;
+		case E_PARSE:
+			return "E_PARSE";
+			break;
+		case E_NOTICE:
+			return "E_NOTICE";
+			break;
+		case E_USER_NOTICE:
+			return "E_USER_NOTICE";
+			break;
+		case E_STRICT:
+			return "E_STRICT";
+			break;
+#if PHP_VERSION_ID >= 50300
+		case E_DEPRECATED:
+			return "E_DEPRECATED";
+			break;
+		case E_USER_DEPRECATED:
+			return "E_USER_DEPRECATED";
+			break;
+#endif
+		default:
+			return "UNKNOWN";
+			break;
+	}
 }
