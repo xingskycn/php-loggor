@@ -9,6 +9,13 @@
 #include <stdio.h>
 #include <string.h>
 
+/* gettimeofday */
+#ifdef PHP_WIN32
+# include "win32/time.h"
+#else
+# include "main/php_config.h"
+#endif
+
 #if HAVE_SYS_SOCKET_H
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -189,14 +196,33 @@ void loggor_throw_exception_hook(zval *exception TSRMLS_DC)
 
 static void insert_event(int type, char * error_filename, uint error_lineno, char * msg TSRMLS_DC)
 {
-  // Create and pack object
   char * json_msg;
-  json_t * obj = json_pack("{s:i, s:s, s:i, s:s}",
+  struct timeval ts;
+  json_t * obj;
+  
+  // Get timestamp
+  gettimeofday(&ts, NULL);
+  
+  // Create and pack object
+  obj = json_pack("{s:i, s:s, s:i, s:s, s:f}",
         "type", type,
         "file", error_filename,
         "line", error_lineno,
-        "message", msg);
-  json_msg = json_dumps(obj, JSON_ENCODE_ANY);
+        "message", msg,
+        "time", (double) ts.tv_sec + USEC_TO_SEC(ts.tv_usec));
+  
+  // Add hostname if available
+#if HAVE_SYS_SOCKET_H
+  char hostname_buf[255];
+  json_t * j_hostname;
+  if( gethostname(hostname_buf, sizeof(hostname_buf) - 1) == 0 ) {
+    j_hostname = json_string(hostname_buf);
+    json_object_set(obj, "hostname", j_hostname);
+  }
+#endif
+  
+  // Convert to string
+  json_msg = json_dumps(obj, JSON_SORT_KEYS);
   
   // PHP Default
   if( LOGGOR_G(php_enabled) ) {
@@ -205,30 +231,32 @@ static void insert_event(int type, char * error_filename, uint error_lineno, cha
   
   // UDP
 #if HAVE_SYS_SOCKET_H
-  struct sockaddr_in sock;
-  int s, i;
-  char * udp_host = LOGGOR_G(udp_host);
-  int udp_port = atoi(LOGGOR_G(udp_port));
-  
-  if( (s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1 ) {
-    // Could not open UDP socket
-    fprintf(stderr, "socket() failed\n");
-  } else {
-    memset((char *) &sock, 0, sizeof(sock));
-    sock.sin_family = AF_INET;
-    sock.sin_port = htons(udp_port);
-    if( inet_aton(udp_host, &sock.sin_addr) == 0 ) {
-      // Could not aton?
-      fprintf(stderr, "inet_aton() failed\n");
+  if( LOGGOR_G(udp_enabled) ) {
+    struct sockaddr_in sock;
+    int s, i;
+    char * udp_host = LOGGOR_G(udp_host);
+    int udp_port = atoi(LOGGOR_G(udp_port));
+
+    if( (s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1 ) {
+      // Could not open UDP socket
+      fprintf(stderr, "socket() failed\n");
     } else {
-      if( sendto(s, (const char *) json_msg, strlen(json_msg), 0, (struct sockaddr*) &sock, sizeof(sock)) == -1 ) {
-        // Could not send packet
-        fprintf(stderr, "sendto() failed\n");
+      memset((char *) &sock, 0, sizeof(sock));
+      sock.sin_family = AF_INET;
+      sock.sin_port = htons(udp_port);
+      if( inet_aton(udp_host, &sock.sin_addr) == 0 ) {
+        // Could not aton?
+        fprintf(stderr, "inet_aton() failed\n");
       } else {
-        // Ok
+        if( sendto(s, (const char *) json_msg, strlen(json_msg), 0, (struct sockaddr*) &sock, sizeof(sock)) == -1 ) {
+          // Could not send packet
+          fprintf(stderr, "sendto() failed\n");
+        } else {
+          // Ok
+        }
       }
+      close(s);
     }
-    close(s);
   }
 #endif
   

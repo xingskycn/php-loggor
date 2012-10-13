@@ -37,6 +37,9 @@ ZEND_EXTERN_MODULE_GLOBALS(loggor);
 #define LOGGOR_G(v) (loggor_globals.v)
 #endif
 
+#define SEC_TO_USEC(sec) ((sec) * 1000000.00)
+#define USEC_TO_SEC(usec) ((usec) / 1000000.00)
+
 } // extern "C" 
 
 #endif

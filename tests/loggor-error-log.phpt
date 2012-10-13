@@ -10,6 +10,6 @@ if(!extension_loaded('loggor')) die('skip ');
 error_log('test');
 ?>
 --EXPECTREGEX--
-\{"message"\:\s+".*",\s+"type"\:\s+\d+,\s+"file"\:\s+".+",\s+"line"\:\s+\d+\}.*
+\{"file"\: ".+?", "hostname"\: ".+?", "line"\: \d+?, "message"\: ".+?", "time"\: [\d.]+?, "type"\: \d+?\}.*
 --XFAIL--
 error_log doesn't get handled by the callback

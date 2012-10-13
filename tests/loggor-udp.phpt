@@ -13,4 +13,4 @@ ini_set('loggor.udp.port', 1337);
 trigger_error('test', E_USER_ERROR);
 ?>
 --EXPECTREGEX--
-\{"message"\:\s+".*",\s+"type"\:\s+\d+,\s+"file"\:\s+".+",\s+"line"\:\s+\d+\}.*
+\{"file"\: ".+?", "hostname"\: ".+?", "line"\: \d+?, "message"\: ".+?", "time"\: [\d.]+?, "type"\: \d+?\}.*
