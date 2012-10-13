@@ -1,14 +1,32 @@
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include "php.h"
 #include "php_ini.h"
 #include "zend_exceptions.h"
 #include "ext/standard/info.h"
 #include "php_loggor.hpp"
 #include <jansson.h>
+
+#include <stdio.h>
+#include <string.h>
+
+#if HAVE_SYS_SOCKET_H
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
+/* {{{ Declarations --------------------------------------------------------- */
+
+ZEND_DECLARE_MODULE_GLOBALS(loggor)
+static PHP_MINIT_FUNCTION(loggor);
+static PHP_MSHUTDOWN_FUNCTION(loggor);
+static PHP_RINIT_FUNCTION(loggor);
+static PHP_RSHUTDOWN_FUNCTION(loggor);
+static PHP_MINFO_FUNCTION(loggor);
+static PHP_GINIT_FUNCTION(loggor);
 
 void (*old_error_cb)(int type, const char *error_filename,
                      const uint error_lineno, const char *format,
@@ -22,133 +40,153 @@ void loggor_throw_exception_hook(zval *exception TSRMLS_DC);
 
 static void insert_event(int, char *, uint, char * TSRMLS_DC);
 
+/* }}} ---------------------------------------------------------------------- */
+/* {{{ Module Entry --------------------------------------------------------- */
 
-/* {{{ loggor_module_entry
- */
 zend_module_entry loggor_module_entry = {
-#if ZEND_MODULE_API_NO >= 20010901
-	STANDARD_MODULE_HEADER,
+  STANDARD_MODULE_HEADER,
+  PHP_LOGGOR_NAME,              /* Name */
+  NULL,                         /* Functions */
+  PHP_MINIT(loggor),            /* MINIT */
+  PHP_MSHUTDOWN(loggor),        /* MSHUTDOWN */
+  PHP_RINIT(loggor),            /* RINIT */
+  PHP_RSHUTDOWN(loggor),        /* RSHUTDOWN */
+  PHP_MINFO(loggor),            /* MINFO */
+  PHP_LOGGOR_VERSION,           /* Version */
+  PHP_MODULE_GLOBALS(loggor),   /* Globals */
+  PHP_GINIT(loggor),            /* GINIT */
+  NULL,
+  NULL,
+  STANDARD_MODULE_PROPERTIES_EX
+};  
+
+#ifdef COMPILE_DL_LOGGOR 
+extern "C" {
+  ZEND_GET_MODULE(loggor)
+}
 #endif
-	"loggor",
-	NULL,
-	PHP_MINIT(loggor),
-	PHP_MSHUTDOWN(loggor),
-	PHP_RINIT(loggor),	
-	PHP_RSHUTDOWN(loggor),
-	PHP_MINFO(loggor),
-#if ZEND_MODULE_API_NO >= 20010901
-	"0.1", /* Replace with version number for your extension */
-#endif
-	STANDARD_MODULE_PROPERTIES
-};
-/* }}} */
 
-#ifdef COMPILE_DL_LOGGOR
-ZEND_GET_MODULE(loggor)
-#endif
+/* }}} ---------------------------------------------------------------------- */
+/* {{{ INI Settings --------------------------------------------------------- */
 
-/* {{{ PHP_MINIT_FUNCTION
- */
-PHP_MINIT_FUNCTION(loggor)
+PHP_INI_BEGIN()
+  STD_PHP_INI_BOOLEAN("loggor.enabled", "1", PHP_INI_ALL, OnUpdateBool, enabled, zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_BOOLEAN("loggor.php.enabled", "1", PHP_INI_ALL, OnUpdateBool, php_enabled, zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_BOOLEAN("loggor.udp.enabled", "0", PHP_INI_ALL, OnUpdateBool, udp_enabled, zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_ENTRY("loggor.udp.host", "", PHP_INI_ALL, OnUpdateString, udp_host, zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_ENTRY("loggor.udp.port", "", PHP_INI_ALL, OnUpdateString, udp_port, zend_loggor_globals, loggor_globals)
+PHP_INI_END()
+
+/* }}} ---------------------------------------------------------------------- */
+/* {{{ Module Hooks --------------------------------------------------------- */
+
+static PHP_MINIT_FUNCTION(loggor)
 {
-	/* Storing actual error callback function for later restore */
-	old_error_cb = zend_error_cb;
-	return SUCCESS;
-}
-/* }}} */
-
-/* {{{ PHP_MSHUTDOWN_FUNCTION
- */
-PHP_MSHUTDOWN_FUNCTION(loggor)
-{
-	/* Restoring saved error callback function */
-	zend_error_cb = old_error_cb;
-	return SUCCESS;
-}
-/* }}} */
-
-PHP_RINIT_FUNCTION(loggor)
-{
-        /* Replacing current error callback function with loggor's one */
-        zend_error_cb = loggor_error_cb;
-        zend_throw_exception_hook = loggor_throw_exception_hook;
-	return SUCCESS;
+  REGISTER_INI_ENTRIES();
+  
+  // Storing actual error callback function for later restore
+  old_error_cb = zend_error_cb;
+  return SUCCESS;
 }
 
-PHP_RSHUTDOWN_FUNCTION(loggor)
+static PHP_MSHUTDOWN_FUNCTION(loggor)
 {
-	/* Restoring saved error callback function */
-	zend_error_cb = old_error_cb;
-	zend_throw_exception_hook = NULL;
-	return SUCCESS;
+  // Restoring saved error callback function 
+  zend_error_cb = old_error_cb;
+  return SUCCESS;
 }
 
-/* {{{ PHP_MINFO_FUNCTION
- */
-PHP_MINFO_FUNCTION(loggor)
+static PHP_RINIT_FUNCTION(loggor)
 {
-	php_info_print_table_start();
-	php_info_print_table_header(2, "loggor support", "loggor");
-	php_info_print_table_end();
+  // Replacing current error callback function with loggor's one
+  zend_error_cb = loggor_error_cb;
+  zend_throw_exception_hook = loggor_throw_exception_hook;
+  return SUCCESS;
 }
-/* }}} */
 
-/* {{{ void apm_error(int type, const char *format, ...)
-   This function provides a hook for error */
+static PHP_RSHUTDOWN_FUNCTION(loggor)
+{
+  // Restoring saved error callback function
+  zend_error_cb = old_error_cb;
+  zend_throw_exception_hook = NULL;
+  return SUCCESS;
+}
+
+static PHP_MINFO_FUNCTION(loggor)
+{
+  php_info_print_table_start();
+  php_info_print_table_header(2, "loggor support", "loggor");
+  php_info_print_table_row(2, "Version", PHP_LOGGOR_VERSION);
+  php_info_print_table_row(2, "Released", PHP_LOGGOR_RELEASE);
+  php_info_print_table_row(2, "Revision", PHP_LOGGOR_BUILD);
+  php_info_print_table_row(2, "Authors", PHP_LOGGOR_AUTHORS);
+  php_info_print_table_end();
+  
+  DISPLAY_INI_ENTRIES();
+}
+
+static PHP_GINIT_FUNCTION(loggor)
+{
+  loggor_globals->enabled = 1;
+  loggor_globals->php_enabled = 1;
+  loggor_globals->udp_enabled = 0;
+  loggor_globals->udp_host = NULL;
+  loggor_globals->udp_port = NULL;
+}
+
+/* }}} ---------------------------------------------------------------------- */
+
 void loggor_error_cb(int type, const char *error_filename, const uint error_lineno, const char *format, va_list args)
 {
-	TSRMLS_FETCH();
+  TSRMLS_FETCH();
 
-	char *msg;
-	va_list args_copy;
-	zend_module_entry tmp_mod_entry;
+  char *msg;
+  va_list args_copy;
+  zend_module_entry tmp_mod_entry;
 
-	/* A copy of args is needed to be used for the old_error_cb */
-	va_copy(args_copy, args);
-	vspprintf(&msg, 0, format, args_copy);
-	va_end(args_copy);
-	
-	if( true ) { // Enabled?
+  /* A copy of args is needed to be used for the old_error_cb */
+  va_copy(args_copy, args);
+  vspprintf(&msg, 0, format, args_copy);
+  va_end(args_copy);
 
-		/* We need to see if we have an uncaught exception fatal error now */
-		if (type == E_ERROR && strncmp(msg, "Uncaught exception", 18) == 0) {
+  if( LOGGOR_G(enabled) ) {
 
-		} else {
-			insert_event(type, (char *) error_filename, error_lineno, msg TSRMLS_CC);
-		}
-	}
-	efree(msg);
+          /* We need to see if we have an uncaught exception fatal error now */
+          if (type == E_ERROR && strncmp(msg, "Uncaught exception", 18) == 0) {
 
-	/* Calling saved callback function for error handling, unless xdebug is loaded */
-	if (zend_hash_find(&module_registry, "xdebug", 7, (void**) &tmp_mod_entry) != SUCCESS) {
-		old_error_cb(type, error_filename, error_lineno, format, args);
-	}
+          } else {
+                  insert_event(type, (char *) error_filename, error_lineno, msg TSRMLS_CC);
+          }
+  }
+  efree(msg);
+
+  /* Calling saved callback function for error handling, unless xdebug is loaded */
+  if (zend_hash_find(&module_registry, "xdebug", 7, (void**) &tmp_mod_entry) != SUCCESS) {
+          old_error_cb(type, error_filename, error_lineno, format, args);
+  }
 }
-/* }}} */
-
 
 void loggor_throw_exception_hook(zval *exception TSRMLS_DC)
 {
-	if( true ) { // Enabled?
-		zval *message, *file, *line;
-		zend_class_entry *default_ce, *exception_ce;
+  if( LOGGOR_G(enabled) ) { // Enabled?
+    zval *message, *file, *line;
+    zend_class_entry *default_ce, *exception_ce;
 
-		if (!exception) {
-			return;
-		}
+    if (!exception) {
+      return;
+    }
 
-		default_ce = zend_exception_get_default(TSRMLS_C);
-		exception_ce = zend_get_class_entry(exception TSRMLS_CC);
+    default_ce = zend_exception_get_default(TSRMLS_C);
+    exception_ce = zend_get_class_entry(exception TSRMLS_CC);
 
-		message = zend_read_property(default_ce, exception, "message", sizeof("message")-1, 0 TSRMLS_CC);
-		file =    zend_read_property(default_ce, exception, "file",    sizeof("file")-1,    0 TSRMLS_CC);
-		line =    zend_read_property(default_ce, exception, "line",    sizeof("line")-1,    0 TSRMLS_CC);
+    message = zend_read_property(default_ce, exception, "message", sizeof("message")-1, 0 TSRMLS_CC);
+    file =    zend_read_property(default_ce, exception, "file",    sizeof("file")-1,    0 TSRMLS_CC);
+    line =    zend_read_property(default_ce, exception, "line",    sizeof("line")-1,    0 TSRMLS_CC);
 
-		insert_event(E_ERROR, Z_STRVAL_P(file), Z_LVAL_P(line), Z_STRVAL_P(message) TSRMLS_CC);
-	}
+    insert_event(E_ERROR, Z_STRVAL_P(file), Z_LVAL_P(line), Z_STRVAL_P(message) TSRMLS_CC);
+  }
 }
 
-/* Insert an event in the backend */
 static void insert_event(int type, char * error_filename, uint error_lineno, char * msg TSRMLS_DC)
 {
   // Create and pack object
@@ -160,8 +198,39 @@ static void insert_event(int type, char * error_filename, uint error_lineno, cha
         "message", msg);
   json_msg = json_dumps(obj, JSON_ENCODE_ANY);
   
-  // Handle json message
-  php_log_err(json_msg TSRMLS_CC);
+  // PHP Default
+  if( LOGGOR_G(php_enabled) ) {
+    php_log_err(json_msg TSRMLS_CC);
+  }
+  
+  // UDP
+#if HAVE_SYS_SOCKET_H
+  struct sockaddr_in sock;
+  int s, i;
+  char * udp_host = LOGGOR_G(udp_host);
+  int udp_port = atoi(LOGGOR_G(udp_port));
+  
+  if( (s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1 ) {
+    // Could not open UDP socket
+    fprintf(stderr, "socket() failed\n");
+  } else {
+    memset((char *) &sock, 0, sizeof(sock));
+    sock.sin_family = AF_INET;
+    sock.sin_port = htons(udp_port);
+    if( inet_aton(udp_host, &sock.sin_addr) == 0 ) {
+      // Could not aton?
+      fprintf(stderr, "inet_aton() failed\n");
+    } else {
+      if( sendto(s, (const char *) json_msg, strlen(json_msg), 0, (struct sockaddr*) &sock, sizeof(sock)) == -1 ) {
+        // Could not send packet
+        fprintf(stderr, "sendto() failed\n");
+      } else {
+        // Ok
+      }
+    }
+    close(s);
+  }
+#endif
   
   // Free
   free(json_msg);

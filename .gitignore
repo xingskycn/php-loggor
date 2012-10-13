@@ -32,6 +32,9 @@ missing
 mkinstalldirs
 run-tests.php
 tmp-php.ini
+tests/*.diff
 tests/*.exp
+tests/*.log
 tests/*.out
 tests/*.php
+tests/*.sh
