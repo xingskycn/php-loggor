@@ -18,6 +18,11 @@ extern "C" {
 #include "TSRM.h"
 #endif
 
+#define LOGGOR_TYPE_INT 0
+#define LOGGOR_TYPE_CONST 1
+#define LOGGOR_TYPE_SIMPLE 2
+#define LOGGOR_TYPE_STRING 3
+  
 extern "C" zend_module_entry loggor_module_entry;
 #define phpext_loggor_ptr &loggor_module_entry
 
@@ -27,6 +32,7 @@ ZEND_BEGIN_MODULE_GLOBALS(loggor)
   zend_bool  udp_enabled;
   char      *udp_host;
   char      *udp_port;
+  int        type_format;
 ZEND_END_MODULE_GLOBALS(loggor)
         
 ZEND_EXTERN_MODULE_GLOBALS(loggor);

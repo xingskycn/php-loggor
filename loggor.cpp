@@ -81,11 +81,12 @@ extern "C" {
 /* {{{ INI Settings --------------------------------------------------------- */
 
 PHP_INI_BEGIN()
-  STD_PHP_INI_BOOLEAN("loggor.enabled", "1", PHP_INI_ALL, OnUpdateBool, enabled, zend_loggor_globals, loggor_globals)
-  STD_PHP_INI_BOOLEAN("loggor.php.enabled", "1", PHP_INI_ALL, OnUpdateBool, php_enabled, zend_loggor_globals, loggor_globals)
-  STD_PHP_INI_BOOLEAN("loggor.udp.enabled", "0", PHP_INI_ALL, OnUpdateBool, udp_enabled, zend_loggor_globals, loggor_globals)
-  STD_PHP_INI_ENTRY("loggor.udp.host", "", PHP_INI_ALL, OnUpdateString, udp_host, zend_loggor_globals, loggor_globals)
-  STD_PHP_INI_ENTRY("loggor.udp.port", "", PHP_INI_ALL, OnUpdateString, udp_port, zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_BOOLEAN("loggor.enabled",     "1", PHP_INI_ALL, OnUpdateBool,   enabled,     zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_ENTRY  ("loggor.type_format", "3", PHP_INI_ALL, OnUpdateLong,   type_format, zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_BOOLEAN("loggor.php.enabled", "1", PHP_INI_ALL, OnUpdateBool,   php_enabled, zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_BOOLEAN("loggor.udp.enabled", "0", PHP_INI_ALL, OnUpdateBool,   udp_enabled, zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_ENTRY  ("loggor.udp.host",    "",  PHP_INI_ALL, OnUpdateString, udp_host,    zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_ENTRY  ("loggor.udp.port",    "",  PHP_INI_ALL, OnUpdateString, udp_port,    zend_loggor_globals, loggor_globals)
 PHP_INI_END()
 
 /* }}} ---------------------------------------------------------------------- */
@@ -94,6 +95,11 @@ PHP_INI_END()
 static PHP_MINIT_FUNCTION(loggor)
 {
   REGISTER_INI_ENTRIES();
+  
+  REGISTER_LONG_CONSTANT("LOGGOR_TYPE_INT", LOGGOR_TYPE_INT, CONST_CS | CONST_PERSISTENT);
+  REGISTER_LONG_CONSTANT("LOGGOR_TYPE_CONST", LOGGOR_TYPE_CONST, CONST_CS | CONST_PERSISTENT);
+  REGISTER_LONG_CONSTANT("LOGGOR_TYPE_SIMPLE", LOGGOR_TYPE_SIMPLE, CONST_CS | CONST_PERSISTENT);
+  REGISTER_LONG_CONSTANT("LOGGOR_TYPE_STRING", LOGGOR_TYPE_STRING, CONST_CS | CONST_PERSISTENT);
   
   // Storing actual error callback function for later restore
   old_error_cb = zend_error_cb;
@@ -139,6 +145,7 @@ static PHP_MINFO_FUNCTION(loggor)
 static PHP_GINIT_FUNCTION(loggor)
 {
   loggor_globals->enabled = 1;
+  loggor_globals->type_format = 3;
   loggor_globals->php_enabled = 1;
   loggor_globals->udp_enabled = 0;
   loggor_globals->udp_host = NULL;
@@ -208,20 +215,35 @@ static void insert_event(int type, char * error_filename, uint error_lineno, cha
   gettimeofday(&ts, NULL);
   
   // Create and pack object
-  obj = json_pack("{s:s, s:s, s:i, s:s, s:f}",
-        "type", loggor_error_type(type),
+  obj = json_pack("{s:s, s:i, s:s, s:f}",
         "file", error_filename,
         "line", error_lineno,
         "message", msg,
         "time", (double) ts.tv_sec + USEC_TO_SEC(ts.tv_usec));
   
+  // Format and add type
+  switch( LOGGOR_G(type_format) ) {
+    case LOGGOR_TYPE_INT:
+      json_object_set_new(obj, "type", json_integer(type));
+      break;
+    case LOGGOR_TYPE_CONST:
+      json_object_set_new(obj, "type", json_string(loggor_error_type_const(type)));
+      break;
+    case LOGGOR_TYPE_SIMPLE:
+      json_object_set_new(obj, "type", json_string(loggor_error_type_simple(type)));
+      break;
+    case LOGGOR_TYPE_STRING:
+    default:
+      json_object_set_new(obj, "type", json_string(loggor_error_type(type)));
+      break;
+  }
+  //"type", loggor_error_type(type),
+  
   // Add hostname if available
 #if HAVE_SYS_SOCKET_H
   char hostname_buf[255];
-  json_t * j_hostname;
   if( gethostname(hostname_buf, sizeof(hostname_buf) - 1) == 0 ) {
-    j_hostname = json_string(hostname_buf);
-    json_object_set(obj, "hostname", j_hostname);
+    json_object_set_new(obj, "hostname", json_string(hostname_buf));
   }
 #endif
   
