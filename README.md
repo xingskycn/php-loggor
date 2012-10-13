@@ -40,13 +40,13 @@ Configuring
 
 ```ini
 loggor.enabled = 1        ; 0 to disable all functionality
-loggor.type_format = 3    ; Changes format of error type, one of LOGGOR_TYPE_INT, LOGGOR_TYPE_CONST, LOGGOR_TYPE_SIMPLE, LOGGOR_TYPE_STRING
+loggor.type_format = 3    ; Changes format of error type, one of LOGGOR_TYPE_INT, 
+                          ; LOGGOR_TYPE_CONST, LOGGOR_TYPE_SIMPLE, LOGGOR_TYPE_STRING
 loggor.php.enabled = 1    ; 0 to disable logging to PHP default error handler
 loggor.udp.enabled = 0    ; 1 to enable logging to UDP
 loggor.udp.host =         ; UDP host to which to send data
 loggor.udp.port =         ; UDP port to which to send data
 ```
-
 
 Usage
 --------------------------------------------------------------------------------
