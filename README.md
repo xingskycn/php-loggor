@@ -3,7 +3,8 @@ php-loggor
 
 Intercepts errors and encodes them using JSON. Can be configured to send out 
 errors over UDP. Can intercept and handle fatal errors and parse errors, unlike 
-set_error_handler().
+set_error_handler(). Also overloads the error_log function such that the message
+is also run through the encoder.
 
 Requirements
 --------------------------------------------------------------------------------
@@ -68,5 +69,4 @@ Todo
 --------------------------------------------------------------------------------
 
 * Resolve segfaults when default error handler is not called so a silence option can be added
-* Overload error_log() function
 * Add getrusage() support and other analytics?

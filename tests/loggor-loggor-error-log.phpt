@@ -1,5 +1,5 @@
 --TEST--
-loggor - with error_log
+loggor - with loggor_error_log
 --SKIPIF--
 <?php 
 
@@ -7,7 +7,7 @@ if(!extension_loaded('loggor')) die('skip ');
  ?>
 --FILE--
 <?php
-error_log('test');
+loggor_error_log('test');
 ?>
 --EXPECTREGEX--
 \{"file"\: ".+?", "hostname"\: ".+?", "line"\: \d+?, "message"\: ".+?", "time"\: [\d.]+?, "type"\: ".+?"?\}.*

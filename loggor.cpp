@@ -1,8 +1,11 @@
 
+extern "C" {
 #include "php.h"
 #include "php_ini.h"
 #include "zend_exceptions.h"
 #include "ext/standard/info.h"
+#include "ext/standard/php_string.h"
+#include "ext/standard/basic_functions.h"
 #include "php_loggor.hpp"
 #include <jansson.h>
 
@@ -24,8 +27,11 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
+}
 
 /* {{{ Declarations --------------------------------------------------------- */
+
+ZEND_FUNCTION(loggor_error_log);
 
 ZEND_DECLARE_MODULE_GLOBALS(loggor)
 static PHP_MINIT_FUNCTION(loggor);
@@ -34,6 +40,8 @@ static PHP_RINIT_FUNCTION(loggor);
 static PHP_RSHUTDOWN_FUNCTION(loggor);
 static PHP_MINFO_FUNCTION(loggor);
 static PHP_GINIT_FUNCTION(loggor);
+
+zend_function *old_error_log_fe = NULL;
 
 void (*old_error_cb)(int type, const char *error_filename,
                      const uint error_lineno, const char *format,
@@ -51,13 +59,30 @@ const char * loggor_error_type_simple(int type);
 const char * loggor_error_type(int type);
 const char * loggor_error_type_const(int type);
 
+static void loggor_override_error_log();
+
+/* }}} ---------------------------------------------------------------------- */
+/* {{{ Function Entry ------------------------------------------------------- */
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_loggor_error_log, 0, 0, 1)
+    ZEND_ARG_INFO(0, message)
+    ZEND_ARG_INFO(0, message_type)
+    ZEND_ARG_INFO(0, destination)
+    ZEND_ARG_INFO(0, extra_headers)
+ZEND_END_ARG_INFO()
+
+static const zend_function_entry loggor_functions[] = {
+    ZEND_FE(loggor_error_log, arginfo_loggor_error_log)
+    ZEND_FE_END
+};
+
 /* }}} ---------------------------------------------------------------------- */
 /* {{{ Module Entry --------------------------------------------------------- */
 
 zend_module_entry loggor_module_entry = {
   STANDARD_MODULE_HEADER,
   PHP_LOGGOR_NAME,              /* Name */
-  NULL,                         /* Functions */
+  loggor_functions,             /* Functions */
   PHP_MINIT(loggor),            /* MINIT */
   PHP_MSHUTDOWN(loggor),        /* MSHUTDOWN */
   PHP_RINIT(loggor),            /* RINIT */
@@ -103,6 +128,10 @@ static PHP_MINIT_FUNCTION(loggor)
   
   // Storing actual error callback function for later restore
   old_error_cb = zend_error_cb;
+  
+  // Override the error_log function
+  loggor_override_error_log();
+  
   return SUCCESS;
 }
 
@@ -153,6 +182,57 @@ static PHP_GINIT_FUNCTION(loggor)
 }
 
 /* }}} ---------------------------------------------------------------------- */
+/* {{{ Functions ------------------------------------------------------------ */
+
+ZEND_FUNCTION(loggor_error_log)
+{
+  char *message, *opt = NULL, *headers = NULL;
+  int message_len, opt_len = 0, headers_len = 0;
+  int opt_err = 0, argc = ZEND_NUM_ARGS();
+  long erropt = 0;
+
+  if( zend_parse_parameters(argc TSRMLS_CC, "s|lss", &message, &message_len, 
+          &erropt, &opt, &opt_len, &headers, &headers_len) == FAILURE ) {
+    return;
+  }
+
+  if( argc > 1 ) {
+    opt_err = erropt;
+  }
+
+  if( opt_err == 3 && opt ) {
+    if( strlen(opt) != opt_len ) {
+      RETURN_FALSE;
+    }
+  }
+  
+  // End stolen from error_log
+  char * error_filename = NULL;
+  uint error_lineno = 0;
+  char * msg = (char *) emalloc(sizeof(char) * (message_len + 1));
+  memcpy(msg, message, message_len);
+  *(msg + message_len) = 0;
+  if( zend_is_compiling(TSRMLS_C) ) {
+    error_filename = zend_get_compiled_filename(TSRMLS_C);
+    error_lineno = zend_get_compiled_lineno(TSRMLS_C);
+  } else if (zend_is_executing(TSRMLS_C)) {
+    error_filename = zend_get_executed_filename(TSRMLS_C);
+    error_lineno = zend_get_executed_lineno(TSRMLS_C);
+  } else {
+    error_filename = NULL;
+    error_lineno = 0;
+  }
+  insert_event(E_NOTICE, error_filename, error_lineno, msg);
+  // Resume stolen from error_log
+
+  if( _php_error_log_ex(opt_err, message, message_len, opt, headers TSRMLS_CC) == FAILURE ) {
+    RETURN_FALSE;
+  }
+  
+  RETURN_TRUE;
+}
+
+/* }}} ---------------------------------------------------------------------- */
 
 void loggor_error_cb(int type, const char *error_filename, const uint error_lineno, const char *format, va_list args)
 {
@@ -168,25 +248,24 @@ void loggor_error_cb(int type, const char *error_filename, const uint error_line
   va_end(args_copy);
 
   if( LOGGOR_G(enabled) ) {
+    // We need to see if we have an uncaught exception fatal error now
+    if (type == E_ERROR && strncmp(msg, "Uncaught exception", 18) == 0) {
 
-          /* We need to see if we have an uncaught exception fatal error now */
-          if (type == E_ERROR && strncmp(msg, "Uncaught exception", 18) == 0) {
-
-          } else {
-                  insert_event(type, (char *) error_filename, error_lineno, msg TSRMLS_CC);
-          }
+    } else {
+      insert_event(type, (char *) error_filename, error_lineno, msg TSRMLS_CC);
+    }
   }
   efree(msg);
 
   /* Calling saved callback function for error handling, unless xdebug is loaded */
-  if (zend_hash_find(&module_registry, "xdebug", 7, (void**) &tmp_mod_entry) != SUCCESS) {
-          old_error_cb(type, error_filename, error_lineno, format, args);
+  if( zend_hash_find(&module_registry, "xdebug", 7, (void**) &tmp_mod_entry) != SUCCESS ) {
+    old_error_cb(type, error_filename, error_lineno, format, args);
   }
 }
 
 void loggor_throw_exception_hook(zval *exception TSRMLS_DC)
 {
-  if( LOGGOR_G(enabled) ) { // Enabled?
+  if( LOGGOR_G(enabled) ) {
     zval *message, *file, *line;
     zend_class_entry *default_ce, *exception_ce;
 
@@ -237,7 +316,6 @@ static void insert_event(int type, char * error_filename, uint error_lineno, cha
       json_object_set_new(obj, "type", json_string(loggor_error_type(type)));
       break;
   }
-  //"type", loggor_error_type(type),
   
   // Add hostname if available
 #if HAVE_SYS_SOCKET_H
@@ -434,4 +512,42 @@ const char * loggor_error_type_const(int type)
 			return "UNKNOWN";
 			break;
 	}
+}
+
+static void loggor_override_error_log()
+{
+  char * fname = estrdup("error_log");
+  char * nfname = estrdup("loggor_error_log");
+  long fname_len = strlen(fname);
+  long nfname_len = strlen(nfname);
+  zend_function *fe, *nfe;
+  
+  // Already overridden
+  if( old_error_log_fe ) {
+    return;
+  }
+  
+  // Get new function entry
+  if( zend_hash_find(CG(function_table), nfname, nfname_len + 1, (void **)&nfe) == FAILURE ) {
+      zend_error(E_WARNING, "%s symbol not found", nfname);
+      return;
+  }
+  
+  // Get old function entry
+  if( zend_hash_find(CG(function_table), fname, fname_len + 1, (void **)&fe) == FAILURE ) {
+      zend_error(E_WARNING, "%s symbol not found", fname);
+      return;
+  }
+  
+  // Update function entry
+  if( zend_hash_update(CG(function_table), fname, fname_len + 1, (void *) nfe, sizeof(zend_function), NULL) == FAILURE ) {
+    zend_error(E_WARNING, "Error updating reference to function name %s()", fname);
+    return;
+  }
+  
+  // Increse ref count for loggor_error_log?
+  function_add_ref(nfe);
+  
+  // Store reference to old function
+  old_error_log_fe = fe;
 }
