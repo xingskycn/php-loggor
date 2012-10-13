@@ -28,10 +28,12 @@ extern "C" zend_module_entry loggor_module_entry;
 
 ZEND_BEGIN_MODULE_GLOBALS(loggor)
   zend_bool  enabled;
+  int        error_reporting;
   zend_bool  php_enabled;
   zend_bool  udp_enabled;
   char      *udp_host;
   char      *udp_port;
+  zend_bool  silence;
   int        type_format;
 ZEND_END_MODULE_GLOBALS(loggor)
         

@@ -10,4 +10,4 @@ if(!extension_loaded('loggor')) die('skip ');
 loggor_error_log('test');
 ?>
 --EXPECTREGEX--
-\{"file"\: ".+?", "hostname"\: ".+?", "line"\: \d+?, "message"\: ".+?", "time"\: [\d.]+?, "type"\: ".+?"?\}.*
+\{"file"\: ".+?", "hostname"\: ".+?", "line"\: \d+?, "message"\: ".+?", "time"\: [\d.]+?, "type"\: ".+?"?\}

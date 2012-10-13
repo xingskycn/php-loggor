@@ -106,12 +106,14 @@ extern "C" {
 /* {{{ INI Settings --------------------------------------------------------- */
 
 PHP_INI_BEGIN()
-  STD_PHP_INI_BOOLEAN("loggor.enabled",     "1", PHP_INI_ALL, OnUpdateBool,   enabled,     zend_loggor_globals, loggor_globals)
-  STD_PHP_INI_ENTRY  ("loggor.type_format", "3", PHP_INI_ALL, OnUpdateLong,   type_format, zend_loggor_globals, loggor_globals)
-  STD_PHP_INI_BOOLEAN("loggor.php.enabled", "1", PHP_INI_ALL, OnUpdateBool,   php_enabled, zend_loggor_globals, loggor_globals)
-  STD_PHP_INI_BOOLEAN("loggor.udp.enabled", "0", PHP_INI_ALL, OnUpdateBool,   udp_enabled, zend_loggor_globals, loggor_globals)
-  STD_PHP_INI_ENTRY  ("loggor.udp.host",    "",  PHP_INI_ALL, OnUpdateString, udp_host,    zend_loggor_globals, loggor_globals)
-  STD_PHP_INI_ENTRY  ("loggor.udp.port",    "",  PHP_INI_ALL, OnUpdateString, udp_port,    zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_BOOLEAN("loggor.enabled",         "1",  PHP_INI_ALL, OnUpdateBool,   enabled,         zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_BOOLEAN("loggor.error_reporting", "-1", PHP_INI_ALL, OnUpdateLong,   error_reporting, zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_ENTRY  ("loggor.silence",         "1",  PHP_INI_ALL, OnUpdateBool,   silence,         zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_ENTRY  ("loggor.type_format",     "3",  PHP_INI_ALL, OnUpdateLong,   type_format,     zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_BOOLEAN("loggor.php.enabled",     "1",  PHP_INI_ALL, OnUpdateBool,   php_enabled,     zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_BOOLEAN("loggor.udp.enabled",     "0",  PHP_INI_ALL, OnUpdateBool,   udp_enabled,     zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_ENTRY  ("loggor.udp.host",        "",   PHP_INI_ALL, OnUpdateString, udp_host,        zend_loggor_globals, loggor_globals)
+  STD_PHP_INI_ENTRY  ("loggor.udp.port",        "",   PHP_INI_ALL, OnUpdateString, udp_port,        zend_loggor_globals, loggor_globals)
 PHP_INI_END()
 
 /* }}} ---------------------------------------------------------------------- */
@@ -174,6 +176,8 @@ static PHP_MINFO_FUNCTION(loggor)
 static PHP_GINIT_FUNCTION(loggor)
 {
   loggor_globals->enabled = 1;
+  loggor_globals->error_reporting = -1;
+  loggor_globals->silence = 1;
   loggor_globals->type_format = 3;
   loggor_globals->php_enabled = 1;
   loggor_globals->udp_enabled = 0;
@@ -224,9 +228,11 @@ ZEND_FUNCTION(loggor_error_log)
   }
   insert_event(E_NOTICE, error_filename, error_lineno, msg);
   // Resume stolen from error_log
-
-  if( _php_error_log_ex(opt_err, message, message_len, opt, headers TSRMLS_CC) == FAILURE ) {
-    RETURN_FALSE;
+  
+  if( !LOGGOR_G(silence) ) {
+    if( _php_error_log_ex(opt_err, message, message_len, opt, headers TSRMLS_CC) == FAILURE ) {
+      RETURN_FALSE;
+    }
   }
   
   RETURN_TRUE;
@@ -258,8 +264,10 @@ void loggor_error_cb(int type, const char *error_filename, const uint error_line
   efree(msg);
 
   /* Calling saved callback function for error handling, unless xdebug is loaded */
-  if( zend_hash_find(&module_registry, "xdebug", 7, (void**) &tmp_mod_entry) != SUCCESS ) {
-    old_error_cb(type, error_filename, error_lineno, format, args);
+  if( !LOGGOR_G(silence) ) {
+    if( zend_hash_find(&module_registry, "xdebug", 7, (void**) &tmp_mod_entry) != SUCCESS ) {
+      old_error_cb(type, error_filename, error_lineno, format, args);
+    }
   }
 }
 
@@ -286,15 +294,22 @@ void loggor_throw_exception_hook(zval *exception TSRMLS_DC)
 
 static void insert_event(int type, char * error_filename, uint error_lineno, char * msg TSRMLS_DC)
 {
-  char * json_msg;
-  struct timeval ts;
-  json_t * obj;
+  // Check internal error reporting
+  int error_reporting = LOGGOR_G(error_reporting);
+  int old_error_reporting = EG(error_reporting);
+  if( error_reporting == -1 ) {
+    error_reporting = EG(error_reporting);
+  }
+  if( !(type & error_reporting) ) {
+    return;
+  }
   
   // Get timestamp
+  struct timeval ts;
   gettimeofday(&ts, NULL);
   
   // Create and pack object
-  obj = json_pack("{s:s, s:i, s:s, s:f}",
+  json_t * obj = json_pack("{s:s, s:i, s:s, s:f}",
         "file", error_filename,
         "line", error_lineno,
         "message", msg,
@@ -326,11 +341,13 @@ static void insert_event(int type, char * error_filename, uint error_lineno, cha
 #endif
   
   // Convert to string
-  json_msg = json_dumps(obj, JSON_SORT_KEYS);
+  char * json_msg = json_dumps(obj, JSON_SORT_KEYS);
   
   // PHP Default
   if( LOGGOR_G(php_enabled) ) {
+    EG(error_reporting) = error_reporting;
     php_log_err(json_msg TSRMLS_CC);
+    EG(error_reporting) = old_error_reporting;
   }
   
   // UDP

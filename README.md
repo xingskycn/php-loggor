@@ -40,13 +40,16 @@ Configuring
 --------------------------------------------------------------------------------
 
 ```ini
-loggor.enabled = 1        ; 0 to disable all functionality
-loggor.type_format = 3    ; Changes format of error type, one of LOGGOR_TYPE_INT, 
-                          ; LOGGOR_TYPE_CONST, LOGGOR_TYPE_SIMPLE, LOGGOR_TYPE_STRING
-loggor.php.enabled = 1    ; 0 to disable logging to PHP default error handler
-loggor.udp.enabled = 0    ; 1 to enable logging to UDP
-loggor.udp.host =         ; UDP host to which to send data
-loggor.udp.port =         ; UDP port to which to send data
+loggor.enabled = 1          ; 0 to disable all functionality
+loggor.error_reporting = -1 ; -1 uses error_reporting, otherwise overrides handling
+                            ; does not currently work for PHP logging
+loggor.php.enabled = 1      ; 0 to disable logging to PHP default error handler
+loggor.silence = 1          ; 1 to ignore internal PHP error handlers
+loggor.type_format = 3      ; Changes format of error type, one of LOGGOR_TYPE_INT, 
+                            ; LOGGOR_TYPE_CONST, LOGGOR_TYPE_SIMPLE, LOGGOR_TYPE_STRING
+loggor.udp.enabled = 0      ; 1 to enable logging to UDP
+loggor.udp.host =           ; UDP host to which to send data
+loggor.udp.port =           ; UDP port to which to send data
 ```
 
 Usage
@@ -70,3 +73,4 @@ Todo
 
 * Resolve segfaults when default error handler is not called so a silence option can be added
 * Add getrusage() support and other analytics?
+* Figure out why errors aren't being logged even when error_reporting is overridden
